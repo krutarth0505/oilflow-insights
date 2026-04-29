@@ -6,6 +6,7 @@ type Props = {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
+  trailing?: ReactNode;
   icon: LucideIcon;
   accent?: "primary" | "gold" | "success" | "warning" | "destructive";
   className?: string;
@@ -19,7 +20,7 @@ const accentMap: Record<NonNullable<Props["accent"]>, string> = {
   destructive: "from-destructive/20 to-destructive/5 text-destructive",
 };
 
-export function KpiCard({ label, value, sub, icon: Icon, accent = "primary", className }: Props) {
+export function KpiCard({ label, value, sub, trailing, icon: Icon, accent = "primary", className }: Props) {
   return (
     <div className={cn("glass-card p-5 hover-lift relative overflow-hidden animate-scale-in", className)}>
       <div className={cn("absolute -top-10 -right-10 h-32 w-32 rounded-full bg-gradient-to-br blur-2xl opacity-60", accentMap[accent])} />
@@ -27,7 +28,10 @@ export function KpiCard({ label, value, sub, icon: Icon, accent = "primary", cla
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
           <p className="mt-2 text-2xl md:text-3xl font-bold tracking-tight truncate">{value}</p>
-          {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
+          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+            {trailing}
+            {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+          </div>
         </div>
         <div className={cn("rounded-xl p-2.5 bg-gradient-to-br", accentMap[accent])}>
           <Icon className="h-5 w-5" />
