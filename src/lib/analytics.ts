@@ -1,4 +1,5 @@
 import { Sale, Purchase, Expense } from "@/hooks/useBusinessData";
+import { DateRange, buildBuckets, inRange } from "./dateRange";
 
 const dayKey = (d: string) => new Date(d).toISOString().slice(0, 10);
 const monthKey = (d: string) => new Date(d).toISOString().slice(0, 7);
@@ -83,5 +84,103 @@ export function computeMetrics(sales: Sale[], purchases: Purchase[], expenses: E
     grossProfit, netProfit, profitMargin,
     trend, avgDailyLitres, bestDays, expenseBreakdown,
     daysRemaining,
+  };
+}
+
+/** Metrics scoped to a date range, with a comparable previous-period summary. */
+export function computeRangeMetrics(
+  sales: Sale[], purchases: Purchase[], expenses: Expense[],
+  range: DateRange, previous?: DateRange,
+) {
+  const inSales = sales.filter(s => inRange(s.sale_date, range));
+  const inPurch = purchases.filter(p => inRange(p.purchase_date, range));
+  const inExp = expenses.filter(e => inRange(e.expense_date, range));
+
+  const sum = (arr: Sale[]) => {
+    let litres = 0, revenue = 0, cost = 0, commission = 0;
+    for (const s of arr) {
+      litres += s.litres;
+      revenue += s.litres * s.selling_price;
+      cost += s.litres * s.purchase_price;
+      commission += s.litres * s.commission_per_litre;
+    }
+    return { litres, revenue, cost, commission, gross: revenue - cost, net: revenue - cost - commission };
+  };
+
+  const cur = sum(inSales);
+  const expensesTotal = inExp.reduce((a, e) => a + e.amount, 0);
+  const netAfterExpenses = cur.net - expensesTotal;
+  const margin = cur.revenue > 0 ? (netAfterExpenses / cur.revenue) * 100 : 0;
+
+  const purchasedLitres = inPurch.reduce((a, p) => a + p.litres, 0);
+  const purchaseSpend = inPurch.reduce((a, p) => a + p.litres * p.purchase_price, 0);
+
+  // Trend buckets across the range
+  const earliest = sales.length || purchases.length
+    ? new Date(Math.min(
+        ...sales.map(s => new Date(s.sale_date).getTime()),
+        ...purchases.map(p => new Date(p.purchase_date).getTime()),
+      ))
+    : undefined;
+  const buckets = buildBuckets(range, earliest);
+  const trend = buckets.map(b => {
+    const day = inSales.filter(s => {
+      const t = new Date(s.sale_date).getTime();
+      return t >= b.start.getTime() && t <= b.end.getTime();
+    });
+    return {
+      date: b.label,
+      revenue: day.reduce((a, s) => a + s.litres * s.selling_price, 0),
+      profit: day.reduce((a, s) => a + s.litres * (s.selling_price - s.purchase_price - s.commission_per_litre), 0),
+      litres: day.reduce((a, s) => a + s.litres, 0),
+    };
+  });
+
+  // Expense breakdown
+  const byCat = new Map<string, number>();
+  inExp.forEach(e => byCat.set(e.category, (byCat.get(e.category) ?? 0) + e.amount));
+  const expenseBreakdown = [...byCat.entries()].map(([name, value]) => ({ name, value }));
+
+  // Best days within range
+  const dailyRev = new Map<string, number>();
+  inSales.forEach(s => {
+    const k = dayKey(s.sale_date);
+    dailyRev.set(k, (dailyRev.get(k) ?? 0) + s.litres * s.selling_price);
+  });
+  const bestDays = [...dailyRev.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([date, revenue]) => ({ date, revenue }));
+
+  // Average daily
+  const dayCount = new Set(inSales.map(s => dayKey(s.sale_date))).size || 1;
+  const avgDailyLitres = cur.litres / dayCount;
+
+  // Previous-period comparison
+  let prev: ReturnType<typeof sum> & { expensesTotal: number; netAfterExpenses: number } | null = null;
+  if (previous) {
+    const prevSales = sales.filter(s => inRange(s.sale_date, previous));
+    const prevExp = expenses.filter(e => inRange(e.expense_date, previous));
+    const ps = sum(prevSales);
+    const pe = prevExp.reduce((a, e) => a + e.amount, 0);
+    prev = { ...ps, expensesTotal: pe, netAfterExpenses: ps.net - pe };
+  }
+
+  const pctChange = (c: number, p: number | undefined) => {
+    if (p === undefined || p === 0) return null;
+    return ((c - p) / Math.abs(p)) * 100;
+  };
+
+  return {
+    range, previous: previous ?? null,
+    litres: cur.litres, revenue: cur.revenue, cost: cur.cost, commission: cur.commission,
+    grossProfit: cur.gross, netProfit: cur.net, expensesTotal, netAfterExpenses, margin,
+    purchasedLitres, purchaseSpend,
+    trend, expenseBreakdown, bestDays, avgDailyLitres,
+    salesCount: inSales.length,
+    prev,
+    delta: prev ? {
+      revenue: pctChange(cur.revenue, prev.revenue),
+      net: pctChange(netAfterExpenses, prev.netAfterExpenses),
+      litres: pctChange(cur.litres, prev.litres),
+      expenses: pctChange(expensesTotal, prev.expensesTotal),
+    } : null,
   };
 }

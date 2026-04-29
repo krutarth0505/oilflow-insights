@@ -1,10 +1,14 @@
+import { useState, useMemo } from "react";
 import { useBusinessData } from "@/hooks/useBusinessData";
-import { computeMetrics } from "@/lib/analytics";
+import { computeMetrics, computeRangeMetrics } from "@/lib/analytics";
 import { fmtINR, fmtLitres, fmtPct, fmtNum } from "@/lib/format";
 import { KpiCard } from "@/components/KpiCard";
 import { AnimatedCounter } from "@/components/AnimatedCounter";
-import { Droplets, IndianRupee, TrendingUp, Package, Receipt, Wallet, Calendar, Sparkles, AlertTriangle } from "lucide-react";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
+import { DeltaBadge } from "@/components/DeltaBadge";
+import { buildRange, previousRange } from "@/lib/dateRange";
+import { Droplets, IndianRupee, TrendingUp, Package, Receipt, Sparkles, AlertTriangle, Calendar } from "lucide-react";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
@@ -13,7 +17,12 @@ const PIE_COLORS = ["hsl(var(--primary))", "hsl(var(--gold))", "hsl(var(--succes
 export default function Dashboard() {
   const navigate = useNavigate();
   const { sales, purchases, expenses, loading } = useBusinessData();
+  const [range, setRange] = useState(() => buildRange("month"));
   const m = computeMetrics(sales, purchases, expenses);
+  const r = useMemo(
+    () => computeRangeMetrics(sales, purchases, expenses, range, previousRange(range)),
+    [sales, purchases, expenses, range],
+  );
   const lowStock = m.inventoryRemaining < 500 && m.purchasedLitres > 0;
 
   if (loading) return <DashboardSkeleton />;
@@ -38,6 +47,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5 animate-fade-in">
+      <DateRangeFilter value={range} onChange={setRange} />
+
       {lowStock && (
         <div className="glass-card p-4 border-warning/40 flex items-center gap-3">
           <div className="rounded-lg bg-warning/15 p-2"><AlertTriangle className="h-4 w-4 text-warning" /></div>
@@ -49,27 +60,36 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* KPI grid */}
+      {/* Range-scoped KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <KpiCard label="Today's Litres" icon={Droplets} accent="primary"
-          value={<AnimatedCounter value={m.todayLitres} format={n => fmtNum(n, n % 1 === 0 ? 0 : 1) + " L"} />}
-          sub={`${sales.filter(s => new Date(s.sale_date).toDateString() === new Date().toDateString()).length} transactions`} />
-        <KpiCard label="Today's Revenue" icon={IndianRupee} accent="gold"
-          value={<AnimatedCounter value={m.todayRevenue} format={n => fmtINR(n)} />}
-          sub={`Net ₹${fmtNum(m.todayNet)}`} />
-        <KpiCard label="Inventory" icon={Package} accent={lowStock ? "warning" : "success"}
-          value={<AnimatedCounter value={m.inventoryRemaining} format={n => fmtNum(Math.max(0, n)) + " L"} />}
-          sub={m.daysRemaining ? `~${Math.max(0, Math.round(m.daysRemaining))} days left` : "Add purchases"} />
-        <KpiCard label="Profit Margin" icon={TrendingUp} accent="success"
-          value={<AnimatedCounter value={m.profitMargin} format={n => fmtPct(n)} />}
-          sub={`Net ${fmtINR(m.netProfit, { compact: true })}`} />
+        <KpiCard label={`Revenue · ${range.label}`} icon={IndianRupee} accent="gold"
+          value={<AnimatedCounter value={r.revenue} format={n => fmtINR(n, { compact: true })} />}
+          trailing={<DeltaBadge value={r.delta?.revenue ?? null} />}
+          sub={fmtINR(r.revenue)} />
+        <KpiCard label="Litres Sold" icon={Droplets} accent="primary"
+          value={<AnimatedCounter value={r.litres} format={n => fmtNum(n, n % 1 === 0 ? 0 : 1) + " L"} />}
+          trailing={<DeltaBadge value={r.delta?.litres ?? null} />}
+          sub={`${r.salesCount} transactions`} />
+        <KpiCard label="Net Profit" icon={TrendingUp} accent="success"
+          value={<AnimatedCounter value={r.netAfterExpenses} format={n => fmtINR(n, { compact: true })} />}
+          trailing={<DeltaBadge value={r.delta?.net ?? null} />}
+          sub={`Margin ${fmtPct(r.margin)}`} />
+        <KpiCard label="Expenses" icon={Receipt} accent="destructive"
+          value={<AnimatedCounter value={r.expensesTotal} format={n => fmtINR(n, { compact: true })} />}
+          trailing={<DeltaBadge value={r.delta?.expenses ?? null} invert />}
+          sub={fmtINR(r.expensesTotal)} />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <KpiCard label="Month Revenue" icon={IndianRupee} accent="gold" value={fmtINR(m.monthRevenue, { compact: true })} sub={fmtINR(m.monthRevenue)} />
-        <KpiCard label="Month Profit" icon={TrendingUp} accent="success" value={fmtINR(m.monthProfitAfterExpenses, { compact: true })} sub="After expenses" />
-        <KpiCard label="Month Expenses" icon={Receipt} accent="destructive" value={fmtINR(m.monthExpenses, { compact: true })} />
-        <KpiCard label="Total Spent on Stock" icon={Wallet} accent="primary" value={fmtINR(m.purchaseSpend, { compact: true })} sub={`${fmtLitres(m.purchasedLitres)} purchased`} />
+        <KpiCard label="Inventory On Hand" icon={Package} accent={lowStock ? "warning" : "success"}
+          value={fmtNum(Math.max(0, m.inventoryRemaining)) + " L"}
+          sub={m.daysRemaining ? `~${Math.max(0, Math.round(m.daysRemaining))} days left` : "Add purchases"} />
+        <KpiCard label="Stock Purchased" icon={Package} accent="primary"
+          value={fmtNum(r.purchasedLitres) + " L"} sub={fmtINR(r.purchaseSpend, { compact: true })} />
+        <KpiCard label="Avg Daily Sales" icon={Droplets} accent="primary"
+          value={fmtNum(r.avgDailyLitres, 1) + " L"} />
+        <KpiCard label="Gross Profit" icon={TrendingUp} accent="success"
+          value={fmtINR(r.grossProfit, { compact: true })} sub="Before commission & expenses" />
       </div>
 
       {/* Charts */}
@@ -78,11 +98,11 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-semibold">Sales Trend</h3>
-              <p className="text-xs text-muted-foreground">Last 14 days revenue & profit</p>
+              <p className="text-xs text-muted-foreground">Revenue & profit · {range.label}</p>
             </div>
           </div>
           <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={m.trend} margin={{ left: -12, right: 8, top: 5 }}>
+            <AreaChart data={r.trend} margin={{ left: -12, right: 8, top: 5 }}>
               <defs>
                 <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.5} />
@@ -105,14 +125,14 @@ export default function Dashboard() {
 
         <div className="glass-card p-5 animate-slide-up">
           <h3 className="font-semibold mb-1">Expense Breakdown</h3>
-          <p className="text-xs text-muted-foreground mb-2">By category</p>
-          {m.expenseBreakdown.length === 0 ? (
+          <p className="text-xs text-muted-foreground mb-2">By category · {range.label}</p>
+          {r.expenseBreakdown.length === 0 ? (
             <div className="h-[230px] flex items-center justify-center text-sm text-muted-foreground">No expenses yet</div>
           ) : (
             <ResponsiveContainer width="100%" height={230}>
               <PieChart>
-                <Pie data={m.expenseBreakdown} dataKey="value" nameKey="name" innerRadius={50} outerRadius={85} paddingAngle={3}>
-                  {m.expenseBreakdown.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                <Pie data={r.expenseBreakdown} dataKey="value" nameKey="name" innerRadius={50} outerRadius={85} paddingAngle={3}>
+                  {r.expenseBreakdown.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} formatter={(v: number) => fmtINR(v)} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -124,10 +144,10 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="glass-card p-5 animate-slide-up">
-          <h3 className="font-semibold mb-1">Inventory Usage</h3>
-          <p className="text-xs text-muted-foreground mb-2">Daily litres sold</p>
+          <h3 className="font-semibold mb-1">Litres Sold</h3>
+          <p className="text-xs text-muted-foreground mb-2">{range.label}</p>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={m.trend} margin={{ left: -12, right: 8 }}>
+            <BarChart data={r.trend} margin={{ left: -12, right: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} />
               <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} />
@@ -141,15 +161,15 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h3 className="font-semibold">Top Sales Days</h3>
-              <p className="text-xs text-muted-foreground">Highest revenue</p>
+              <p className="text-xs text-muted-foreground">Highest revenue · {range.label}</p>
             </div>
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </div>
-          {m.bestDays.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No sales recorded yet.</p>
+          {r.bestDays.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No sales in this period.</p>
           ) : (
             <ul className="space-y-2">
-              {m.bestDays.map((d, i) => (
+              {r.bestDays.map((d, i) => (
                 <li key={d.date} className="flex items-center justify-between p-2.5 rounded-xl bg-muted/40">
                   <div className="flex items-center gap-3">
                     <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold ${i === 0 ? "bg-gradient-gold text-gold-foreground shadow-gold" : "bg-secondary text-secondary-foreground"}`}>{i + 1}</span>

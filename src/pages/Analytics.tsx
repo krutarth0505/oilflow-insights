@@ -1,30 +1,61 @@
+import { useState, useMemo } from "react";
 import { useBusinessData } from "@/hooks/useBusinessData";
-import { computeMetrics } from "@/lib/analytics";
+import { computeMetrics, computeRangeMetrics } from "@/lib/analytics";
 import { fmtINR, fmtLitres, fmtPct, fmtNum } from "@/lib/format";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend } from "recharts";
 import { KpiCard } from "@/components/KpiCard";
-import { TrendingUp, IndianRupee, Droplets, Sparkles } from "lucide-react";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
+import { DeltaBadge } from "@/components/DeltaBadge";
+import { buildRange, previousRange } from "@/lib/dateRange";
+import { TrendingUp, IndianRupee, Droplets, Sparkles, Receipt } from "lucide-react";
 
 export default function Analytics() {
   const { sales, purchases, expenses, loading } = useBusinessData();
+  const [range, setRange] = useState(() => buildRange("month"));
+  const prev = useMemo(() => previousRange(range), [range]);
   const m = computeMetrics(sales, purchases, expenses);
+  const r = useMemo(() => computeRangeMetrics(sales, purchases, expenses, range, prev), [sales, purchases, expenses, range, prev]);
+  const rPrev = useMemo(() => computeRangeMetrics(sales, purchases, expenses, prev), [sales, purchases, expenses, prev]);
 
   if (loading) return <div className="glass-card h-64 animate-pulse" />;
 
+  // Build a comparison dataset by index (current vs previous bucket-by-bucket)
+  const compareData = r.trend.map((d, i) => ({
+    date: d.date,
+    current: d.revenue,
+    previous: rPrev.trend[i]?.revenue ?? 0,
+  }));
+
   const insights = [
     m.daysRemaining !== null && `Inventory will last ~${Math.max(0, Math.round(m.daysRemaining))} days at current pace.`,
-    m.bestDays[0] && `Best day so far: ${new Date(m.bestDays[0].date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })} with ${fmtINR(m.bestDays[0].revenue)} revenue.`,
-    m.avgDailyLitres > 0 && `Average daily sales: ${fmtLitres(m.avgDailyLitres)}.`,
-    m.profitMargin > 0 && `Overall profit margin is ${fmtPct(m.profitMargin)}.`,
+    r.bestDays[0] && `Best day in ${range.label}: ${new Date(r.bestDays[0].date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })} with ${fmtINR(r.bestDays[0].revenue)} revenue.`,
+    r.avgDailyLitres > 0 && `Average daily sales (${range.label}): ${fmtLitres(r.avgDailyLitres)}.`,
+    r.delta?.revenue !== null && r.delta?.revenue !== undefined && `Revenue is ${r.delta.revenue >= 0 ? "up" : "down"} ${Math.abs(r.delta.revenue).toFixed(1)}% vs previous period.`,
+    r.delta?.net !== null && r.delta?.net !== undefined && `Net profit is ${r.delta.net >= 0 ? "up" : "down"} ${Math.abs(r.delta.net).toFixed(1)}% vs previous period.`,
+    r.margin > 0 && `Margin in ${range.label}: ${fmtPct(r.margin)}.`,
   ].filter(Boolean) as string[];
 
   return (
     <div className="space-y-5 animate-fade-in">
+      <DateRangeFilter value={range} onChange={setRange} />
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <KpiCard label="Total Revenue" icon={IndianRupee} accent="gold" value={fmtINR(m.revenue, { compact: true })} sub={fmtINR(m.revenue)} />
-        <KpiCard label="Gross Profit" icon={TrendingUp} accent="primary" value={fmtINR(m.grossProfit, { compact: true })} sub="Before commission & expenses" />
-        <KpiCard label="Net Profit" icon={TrendingUp} accent="success" value={fmtINR(m.netProfit, { compact: true })} sub={`Margin ${fmtPct(m.profitMargin)}`} />
-        <KpiCard label="Avg Daily Sales" icon={Droplets} accent="primary" value={fmtNum(m.avgDailyLitres, 1) + " L"} />
+        <KpiCard label="Revenue" icon={IndianRupee} accent="gold"
+          value={fmtINR(r.revenue, { compact: true })}
+          trailing={<DeltaBadge value={r.delta?.revenue ?? null} />}
+          sub={`vs ${fmtINR(rPrev.revenue, { compact: true })}`} />
+        <KpiCard label="Net Profit" icon={TrendingUp} accent="success"
+          value={fmtINR(r.netAfterExpenses, { compact: true })}
+          trailing={<DeltaBadge value={r.delta?.net ?? null} />}
+          sub={`Margin ${fmtPct(r.margin)}`} />
+        <KpiCard label="Litres Sold" icon={Droplets} accent="primary"
+          value={fmtNum(r.litres) + " L"}
+          trailing={<DeltaBadge value={r.delta?.litres ?? null} />}
+          sub={`Avg ${fmtNum(r.avgDailyLitres, 1)} L/day`} />
+        <KpiCard label="Expenses" icon={Receipt} accent="destructive"
+          value={fmtINR(r.expensesTotal, { compact: true })}
+          trailing={<DeltaBadge value={r.delta?.expenses ?? null} invert />}
+          sub={`vs ${fmtINR(rPrev.expensesTotal, { compact: true })}`} />
       </div>
 
       <div className="glass-card p-5">
@@ -42,9 +73,9 @@ export default function Analytics() {
       </div>
 
       <div className="glass-card p-5">
-        <h3 className="font-semibold mb-1">Revenue & Profit (14 days)</h3>
+        <h3 className="font-semibold mb-1">Revenue & Profit · {range.label}</h3>
         <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={m.trend} margin={{ left: -10, right: 8 }}>
+          <LineChart data={r.trend} margin={{ left: -10, right: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} />
             <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickFormatter={(v) => fmtINR(v, { compact: true })} />
@@ -56,9 +87,25 @@ export default function Analytics() {
       </div>
 
       <div className="glass-card p-5">
-        <h3 className="font-semibold mb-1">Daily Litres Sold</h3>
+        <h3 className="font-semibold mb-1">Period Comparison</h3>
+        <p className="text-xs text-muted-foreground mb-2">Current vs previous period (revenue)</p>
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={compareData} margin={{ left: -10, right: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} />
+            <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickFormatter={(v) => fmtINR(v, { compact: true })} />
+            <Tooltip contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} formatter={(v: number) => fmtINR(v)} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Line type="monotone" dataKey="current" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} name={range.label} />
+            <Line type="monotone" dataKey="previous" stroke="hsl(var(--muted-foreground))" strokeWidth={2} strokeDasharray="4 4" dot={false} name="Previous" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="glass-card p-5">
+        <h3 className="font-semibold mb-1">Litres Sold · {range.label}</h3>
         <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={m.trend} margin={{ left: -10, right: 8 }}>
+          <BarChart data={r.trend} margin={{ left: -10, right: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} />
             <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} />
