@@ -14,7 +14,138 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      expenses: {
+        Row: {
+          amount: number
+          category: string
+          created_at: string
+          description: string | null
+          expense_date: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          category: string
+          created_at?: string
+          description?: string | null
+          expense_date?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          category?: string
+          created_at?: string
+          description?: string | null
+          expense_date?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      inventory_purchases: {
+        Row: {
+          created_at: string
+          id: string
+          invoice_number: string | null
+          litres: number
+          notes: string | null
+          purchase_date: string
+          purchase_price: number
+          supplier_name: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          invoice_number?: string | null
+          litres: number
+          notes?: string | null
+          purchase_date?: string
+          purchase_price?: number
+          supplier_name?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          invoice_number?: string | null
+          litres?: number
+          notes?: string | null
+          purchase_date?: string
+          purchase_price?: number
+          supplier_name?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sales: {
+        Row: {
+          commission_per_litre: number
+          created_at: string
+          customer_name: string | null
+          id: string
+          litres: number
+          notes: string | null
+          payment_mode: string | null
+          purchase_price: number
+          sale_date: string
+          salesman_name: string | null
+          selling_price: number
+          user_id: string
+        }
+        Insert: {
+          commission_per_litre?: number
+          created_at?: string
+          customer_name?: string | null
+          id?: string
+          litres: number
+          notes?: string | null
+          payment_mode?: string | null
+          purchase_price?: number
+          sale_date?: string
+          salesman_name?: string | null
+          selling_price?: number
+          user_id: string
+        }
+        Update: {
+          commission_per_litre?: number
+          created_at?: string
+          customer_name?: string | null
+          id?: string
+          litres?: number
+          notes?: string | null
+          payment_mode?: string | null
+          purchase_price?: number
+          sale_date?: string
+          salesman_name?: string | null
+          selling_price?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
